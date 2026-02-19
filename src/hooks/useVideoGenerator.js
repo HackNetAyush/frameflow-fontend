@@ -4,6 +4,8 @@ import { createFFmpeg, fetchFile } from '@ffmpeg/ffmpeg';
 import CCapture from 'ccapture.js-npmfixed';
 import { CanvasMarkupRenderer } from '../utils/CanvasRenderer';
 
+const server_url = import.meta.env.VITE_SERVER_URL
+
 export const useVideoGenerator = () => {
     const [status, setStatus] = useState('idle');
     const [progress, setProgress] = useState(0);
@@ -121,7 +123,7 @@ export const useVideoGenerator = () => {
 
         try {
             // Step 1: Send request to backend (Streaming)
-            const response = await fetch('http://localhost:3000/api/explain', {
+            const response = await fetch(`${server_url}/api/explain`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ prompt, chatID: chatID.current })
@@ -191,7 +193,7 @@ export const useVideoGenerator = () => {
             currentProgressRef.current = 0;
 
             setStatus('loading_images');
-            const jsonUrl = `http://localhost:3000/${chatID.current}/json/j1.json`;
+            const jsonUrl = `${server_url}/${chatID.current}/json/j1.json`;
             const slidesData = await (await fetch(jsonUrl)).json();
 
             // Step 2.1: Pre-load Images
@@ -200,7 +202,7 @@ export const useVideoGenerator = () => {
 
             setTargetProgress(40);
 
-            const audioUrl = `http://localhost:3000/${chatID.current}/merged/output.wav`;
+            const audioUrl = `${server_url}/${chatID.current}/merged/output.wav`;
             const audioBlob = await (await fetch(audioUrl)).blob();
 
             setTargetProgress(50);
