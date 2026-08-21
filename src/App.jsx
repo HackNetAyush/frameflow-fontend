@@ -1,145 +1,212 @@
+import React, { useEffect, useRef, useState } from 'react';
+import { Menu, AlertCircle, Video as VideoIcon, ArrowRight } from 'lucide-react';
 
-import React, { useRef, useEffect } from 'react';
-import { Send, Sparkles } from 'lucide-react';
 import Sidebar from './components/Layout/Sidebar';
-import ChatMessage from './components/Chat/ChatMessage';
-
-import ProgressOverlay from './components/Video/ProgressOverlay';
 import LoadingScreen from './components/Layout/LoadingScreen';
-import { useChat } from './hooks/useChat';
+import Hero from './components/Home/Hero';
+import PromptBar from './components/Home/PromptBar';
+import VideoCard from './components/Video/VideoCard';
+import VideoPlayer from './components/Video/VideoPlayer';
+import ProgressOverlay from './components/Video/ProgressOverlay';
+import ThemeToggle from './components/Layout/ThemeToggle';
+
+import { useVideos } from './hooks/useVideos';
 import { useVideoGenerator } from './hooks/useVideoGenerator';
+import { useTheme } from './hooks/useTheme';
 
-
+const EmptyState = ({ compact }) => (
+  <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-line py-14 text-center">
+    <span className="grid h-11 w-11 place-items-center rounded-xl bg-ink-850 text-mist-500">
+      <VideoIcon className="h-5 w-5" />
+    </span>
+    <p className="mt-3.5 text-[14px] font-medium text-mist-300">No videos yet</p>
+    <p className="mt-1 max-w-xs text-[12.5px] text-mist-500">
+      {compact
+        ? 'Your generated videos will show up here.'
+        : 'Head to Home and describe a topic to generate your first explainer.'}
+    </p>
+  </div>
+);
 
 function App() {
-  const { messages, addMessage } = useChat();
-  const { processRequest, status, progress, error, videoUrl, canvasRef, isEngineLoaded } = useVideoGenerator();
-  const chatEndRef = useRef(null);
-  const inputRef = useRef(null);
-  const [activeRequestPrompt, setActiveRequestPrompt] = React.useState(null);
+  const { videos, addVideo, removeVideo } = useVideos();
+  const { theme, toggleTheme } = useTheme();
+  const { processRequest, status, progress, error, video, videoUrl, canvasRef, isEngineLoaded } =
+    useVideoGenerator();
 
-  const handleSend = async () => {
-    const text = inputRef.current.value.trim();
-    if (!text) return;
-    
-    inputRef.current.value = '';
-    addMessage('user', text);
-    setActiveRequestPrompt(text);
-    
-    // Process request
-    processRequest(text);
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
-  const handlePromptSelect = (prompt) => {
-    inputRef.current.value = prompt;
-  };
-
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, status]);
-
-  // Handle side-effects of generation status
-  useEffect(() => {
-    if (status === 'done' && videoUrl) {
-         addMessage('bot', '', 'video', { videoUrl, prompt: activeRequestPrompt });
-    }
-    if (status === 'error' && error) {
-        addMessage('bot', `Sorry, I encountered an error: ${error}`, 'error');
-    }
-  }, [status, videoUrl, error]);
+  const [view, setView] = useState('home');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [activePrompt, setActivePrompt] = useState(null);
+  const [playing, setPlaying] = useState(null);
+  const savedUrlRef = useRef(null);
 
   const isGenerating = status !== 'idle' && status !== 'done' && status !== 'error';
 
-  if (!isEngineLoaded) {
-    return <LoadingScreen />;
-  }
+  const handleGenerate = (prompt) => {
+    setActivePrompt(prompt);
+    setView('home');
+    processRequest(prompt);
+  };
+
+  const handleDownload = (item) => {
+    const a = document.createElement('a');
+    a.href = item.videoUrl;
+    a.download = `xplainer-${item.id}.${item.ext || 'mp4'}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  const handleDelete = (id) => {
+    setPlaying((current) => (current?.id === id ? null : current));
+    removeVideo(id);
+  };
+
+  // Move a finished render into the library exactly once.
+  useEffect(() => {
+    if (status === 'done' && videoUrl && savedUrlRef.current !== videoUrl) {
+      savedUrlRef.current = videoUrl;
+      addVideo({ prompt: activePrompt, videoUrl, ext: video?.ext, mimeType: video?.mimeType });
+    }
+  }, [status, videoUrl, video, activePrompt, addVideo]);
+
+  if (!isEngineLoaded) return <LoadingScreen />;
 
   return (
-    <div className="flex h-screen bg-slate-950 text-slate-200 overflow-hidden font-sans selection:bg-purple-500/30">
-      <Sidebar onPromptSelect={handlePromptSelect} />
+    <div className="flex h-screen overflow-hidden bg-ink-950 text-mist-100">
+      <Sidebar
+        view={view}
+        onViewChange={setView}
+        videoCount={videos.length}
+        isEngineReady={isEngineLoaded}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
 
-      <main className="flex-1 flex flex-col relative">
-        {/* Header */}
-        <header className="absolute top-0 w-full z-10 p-4 bg-gradient-to-b from-slate-950 to-transparent">
-            <div className="lg:hidden flex items-center space-x-2 mb-2">
-                <div className="w-8 h-8 rounded-lg bg-purple-600 flex items-center justify-center">
-                    <Sparkles className="w-4 h-4 text-white" />
-                </div>
-                <span className="font-bold text-white">Xplainer AI</span>
+      <main className="flex flex-1 flex-col overflow-hidden">
+        {/* Top bar */}
+        <header className="flex h-[68px] shrink-0 items-center gap-3 border-b border-line px-5 sm:px-8">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="rounded-lg p-2 text-mist-400 hover:bg-ink-800 hover:text-mist-100 lg:hidden"
+            aria-label="Open menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+
+          <h2 className="text-[15px] font-semibold text-mist-100">
+            {view === 'home' ? 'Home' : 'My Videos'}
+          </h2>
+
+          <div className="ml-auto flex items-center gap-2.5">
+            <div className="hidden items-center gap-2 rounded-full border border-line bg-ink-900 px-3 py-1.5 sm:flex">
+              <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+              <span className="text-[11.5px] font-medium text-mist-300">Engine ready</span>
             </div>
+            <ThemeToggle theme={theme} onToggle={toggleTheme} />
+          </div>
         </header>
 
-        {/* Chat Area */}
-        <div className="flex-1 overflow-y-auto px-4 pt-20 pb-4 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
-             <div className="max-w-3xl mx-auto">
-                {messages.map((msg) => (
-                    <ChatMessage key={msg.id} message={msg} />
-                ))}
-                
-                {isGenerating && (
-                    <div className="mb-6 fade-in">
-                        <ChatMessage 
-                            message={{
-                                role: 'bot',
-                                content: `Creating video for you...`
-                            }} 
-                        />
-                        <div className="pl-14">
-                            <ProgressOverlay status={status} progress={progress} />
-                        </div>
+        {/* Scroll region */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-5xl px-5 py-8 sm:px-8 sm:py-10">
+            {view === 'home' ? (
+              <>
+                <Hero />
+
+                <div className="mt-9 space-y-4">
+                  {error && !isGenerating ? (
+                    <div className="flex items-start gap-2.5 rounded-xl border border-red-500/25 bg-red-500/8 px-4 py-3 text-[13px] text-danger-fg">
+                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span>{error}</span>
                     </div>
-                )}
+                  ) : null}
 
-                {status === 'done' && videoUrl && (
-                    <div className="hidden" /> /* Placeholder to keep logic cleaner, handled by useEffect now */
-                )}
-                
-                <div ref={chatEndRef} />
-             </div>
-        </div>
-
-        {/* Input Area */}
-        <div className="p-4 bg-slate-900/50 backdrop-blur-md border-t border-white/5">
-            <div className="max-w-3xl mx-auto relative">
-                <div className="absolute inset-0 bg-gradient-to-r from-purple-500/20 to-blue-500/20 blur-xl rounded-xl -z-10"></div>
-                <div className="bg-slate-800/80 border border-white/10 rounded-xl flex items-center p-2 shadow-2xl focus-within:ring-2 focus-within:ring-purple-500/50 transition-all">
-                    <input
-                        ref={inputRef}
-                        type="text"
-                        placeholder="What would you like to learn today?"
-                        className="flex-1 bg-transparent border-none outline-none px-4 py-3 text-white placeholder-slate-400"
-                        onKeyDown={handleKeyDown}
-                        disabled={isGenerating}
-                    />
-                    <button 
-                        onClick={handleSend}
-                        disabled={isGenerating}
-                        className="p-3 bg-purple-600 hover:bg-purple-500 rounded-lg text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        <Send className="w-5 h-5" />
-                    </button>
+                  {isGenerating ? (
+                    <ProgressOverlay status={status} progress={progress} prompt={activePrompt} />
+                  ) : (
+                    <PromptBar onSubmit={handleGenerate} disabled={isGenerating} />
+                  )}
                 </div>
-                <p className="text-center text-xs text-slate-500 mt-2">
-                    AI generated content can be inaccurate.
-                </p>
-            </div>
-        </div>
 
-        {/* Hidden Canvas - THE ENGINE */}
-        <canvas 
-            ref={canvasRef} 
-            width={1280} 
-            height={720} 
-            className="hidden absolute pointer-events-none opacity-0" 
-        />
+                {/* Recently created */}
+                <section className="mt-11">
+                  <div className="mb-4 flex items-center justify-between">
+                    <h2 className="text-[19px] font-bold tracking-tight text-mist-100">
+                      Recently created
+                    </h2>
+                    {videos.length > 3 ? (
+                      <button
+                        onClick={() => setView('videos')}
+                        className="flex items-center gap-1.5 text-[13px] font-medium text-mist-400 transition-colors hover:text-accent-fg"
+                      >
+                        View all
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null}
+                  </div>
+
+                  {videos.length === 0 ? (
+                    <EmptyState compact />
+                  ) : (
+                    <div className="space-y-3">
+                      {videos.slice(0, 3).map((video) => (
+                        <VideoCard
+                          key={video.id}
+                          video={video}
+                          onOpen={setPlaying}
+                          onDownload={handleDownload}
+                          onDelete={handleDelete}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </section>
+              </>
+            ) : (
+              <section>
+                <h1 className="text-[26px] font-bold tracking-tight text-mist-100">My Videos</h1>
+                <p className="mt-1.5 text-[13.5px] text-mist-400">
+                  {videos.length} video{videos.length === 1 ? '' : 's'} generated this session.
+                </p>
+
+                <div className="mt-7">
+                  {videos.length === 0 ? (
+                    <EmptyState />
+                  ) : (
+                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                      {videos.map((video) => (
+                        <VideoCard
+                          key={video.id}
+                          video={video}
+                          layout="grid"
+                          onOpen={setPlaying}
+                          onDownload={handleDownload}
+                          onDelete={handleDelete}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
+          </div>
+        </div>
       </main>
+
+      <VideoPlayer
+        video={playing}
+        onClose={() => setPlaying(null)}
+        onDownload={handleDownload}
+      />
+
+      {/* Hidden render target — the canvas the video engine draws into */}
+      <canvas
+        ref={canvasRef}
+        width={1920}
+        height={1080}
+        className="pointer-events-none absolute hidden opacity-0"
+      />
     </div>
   );
 }

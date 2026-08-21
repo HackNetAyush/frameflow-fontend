@@ -1,371 +1,424 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  composeSlide, paintBackground, paintChrome, paintPage, ensureFonts, getTheme,
+} from '../render';
+import { encodeMp4, encodeFallback, supportsWebCodecs } from '../video/encoder';
 
-import { useState, useRef, useEffect } from 'react';
-import { createFFmpeg, fetchFile } from '@ffmpeg/ffmpeg';
-import CCapture from 'ccapture.js-npmfixed';
-import { CanvasMarkupRenderer } from '../utils/CanvasRenderer';
+const server_url = import.meta.env.VITE_SERVER_URL;
 
-const server_url = import.meta.env.VITE_SERVER_URL
+/** Output frame size. 1080p gives the layout engine room to breathe. */
+const WIDTH = 1920;
+const HEIGHT = 1080;
+const FPS = 30;
+const FALLBACK_FPS = 6;
+
+const SLIDE_THEME = 'studio';
+
+/** How long a slide's content takes to write itself on, and to clear. */
+const REVEAL_PER_BLOCK = 240;
+const REVEAL_MIN = 650;
+const REVEAL_MAX = 2600;
+const OUTRO_MS = 260;
+
+/**
+ * Progress is one monotonic 0-100 scale with fixed weights, so the bar never
+ * fills and restarts the way it used to when the backend phase finished.
+ */
+const PHASE = {
+  script: [0, 12],
+  media: [12, 55],
+  assets: [55, 63],
+  compose: [63, 70],
+  encode: [70, 98],
+};
+
+const lerp = (phase, t) => {
+  const [a, b] = phase;
+  return a + (b - a) * Math.max(0, Math.min(1, t));
+};
 
 export const useVideoGenerator = () => {
-    const [status, setStatus] = useState('idle');
-    const [progress, setProgress] = useState(0);
-    const [error, setError] = useState(null);
-    const [videoUrl, setVideoUrl] = useState(null);
-    const [isEngineLoaded, setIsEngineLoaded] = useState(false);
+  const [status, setStatus] = useState('idle');
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState(null);
+  const [video, setVideo] = useState(null);
+  const [isEngineLoaded, setIsEngineLoaded] = useState(false);
 
-    const ffmpegRef = useRef(null);
-    const canvasRef = useRef(null);
-    const chatID = useRef(null);
+  const canvasRef = useRef(null);
+  const ffmpegRef = useRef(null);
+  const abortRef = useRef(null);
+  const useWebCodecsRef = useRef(false);
 
-    // Progress Smoothing Logic
-    const targetProgressRef = useRef(0);
-    const currentProgressRef = useRef(0);
-    const animationFrameRef = useRef(null);
+  /* --- smoothed progress ------------------------------------------- */
+  const targetRef = useRef(0);
+  const currentRef = useRef(0);
+  const rafRef = useRef(null);
 
-    useEffect(() => {
-        const animateCX = () => {
-            // Linear interpolation for smoothness
-            const diff = targetProgressRef.current - currentProgressRef.current;
-
-            if (Math.abs(diff) > 0.1) {
-                // Move 5% of the distance per frame, or at least 0.1
-                const step = Math.max(Math.abs(diff) * 0.05, 0.1);
-                currentProgressRef.current += Math.sign(diff) * step;
-
-                // Clamp
-                if (currentProgressRef.current > 100) currentProgressRef.current = 100;
-
-                setProgress(currentProgressRef.current);
-                animationFrameRef.current = requestAnimationFrame(animateCX);
-            } else {
-                // Snap to target if very close
-                if (currentProgressRef.current !== targetProgressRef.current) {
-                    currentProgressRef.current = targetProgressRef.current;
-                    setProgress(currentProgressRef.current);
-                }
-                animationFrameRef.current = requestAnimationFrame(animateCX);
-            }
-        };
-
-        animationFrameRef.current = requestAnimationFrame(animateCX);
-
-        return () => {
-            if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-        };
-    }, []);
-
-    const setTargetProgress = (val) => {
-        targetProgressRef.current = val;
+  useEffect(() => {
+    const tick = () => {
+      const diff = targetRef.current - currentRef.current;
+      if (Math.abs(diff) > 0.05) {
+        currentRef.current += Math.sign(diff) * Math.max(Math.abs(diff) * 0.08, 0.08);
+        setProgress(Math.min(100, currentRef.current));
+      } else if (currentRef.current !== targetRef.current) {
+        currentRef.current = targetRef.current;
+        setProgress(currentRef.current);
+      }
+      rafRef.current = requestAnimationFrame(tick);
     };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, []);
 
-    const loadFFmpeg = async () => {
-        if (ffmpegRef.current) {
-            setIsEngineLoaded(true);
-            return;
+  const setTarget = useCallback((v) => {
+    // Never let progress move backwards; that reads as a failure to users.
+    targetRef.current = Math.max(targetRef.current, Math.min(100, v));
+  }, []);
+
+  /* --- engine readiness --------------------------------------------- */
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      // Fonts must be resolvable before the first measurement or every layout
+      // is computed against fallback metrics and the fit is wrong.
+      await ensureFonts();
+      const ok = await supportsWebCodecs(WIDTH, HEIGHT, FPS);
+      if (cancelled) return;
+
+      useWebCodecsRef.current = ok;
+      // ffmpeg.wasm is only needed on the fallback path, so the splash screen
+      // no longer waits ~10s for a 25MB core the fast path never touches.
+      if (!ok) await loadFfmpeg();
+      if (!cancelled) setIsEngineLoaded(true);
+    })();
+
+    return () => { cancelled = true; };
+  }, []);
+
+  const loadFfmpeg = async () => {
+    if (ffmpegRef.current) return ffmpegRef.current;
+    try {
+      const { createFFmpeg } = await import('@ffmpeg/ffmpeg');
+      const ffmpeg = createFFmpeg({
+        log: false,
+        corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+      });
+      await ffmpeg.load();
+      ffmpegRef.current = ffmpeg;
+      return ffmpeg;
+    } catch (err) {
+      console.error('ffmpeg load failed', err);
+      return null;
+    }
+  };
+
+  /* --- assets -------------------------------------------------------- */
+
+  const preloadImages = async (slides) => {
+    const urls = [...new Set(
+      slides.flatMap((s) => [...String(s.content).matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)].map((m) => m[1])),
+    )];
+
+    const cache = {};
+    await Promise.all(urls.map((url) => new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => { cache[url] = img; resolve(); };
+      img.onerror = () => resolve(); // one bad image must not sink the video
+      img.src = url;
+    })));
+
+    // A cross-origin image that loaded but failed its CORS check still taints
+    // the canvas, and the first encode call then throws SecurityError after all
+    // the backend work is already paid for. Probe each one and drop the unsafe.
+    const probe = document.createElement('canvas');
+    probe.width = 2;
+    probe.height = 2;
+    const pctx = probe.getContext('2d', { willReadFrequently: true });
+
+    for (const [url, img] of Object.entries(cache)) {
+      try {
+        pctx.clearRect(0, 0, 2, 2);
+        pctx.drawImage(img, 0, 0, 2, 2);
+        pctx.getImageData(0, 0, 1, 1);
+      } catch {
+        console.warn(`Dropping image that would taint the canvas: ${url}`);
+        delete cache[url];
+      }
+    }
+
+    return cache;
+  };
+
+  /* --- timeline ------------------------------------------------------ */
+
+  /**
+   * Compose every slide, then flatten to a page timeline.
+   *
+   * A slide whose content had to be split across pages divides its own
+   * narration window between them by content weight, so audio and visuals stay
+   * locked together no matter how the fitter paginated.
+   */
+  const buildTimeline = (slides, imageCache, onProgress) => {
+    const segments = [];
+    let clock = 0;
+
+    slides.forEach((slide, i) => {
+      const duration = Number(slide.time);
+      // A zero duration used to make a slide unreachable by the frame lookup
+      // while its audio still played, desyncing everything after it.
+      const safe = Number.isFinite(duration) && duration > 0 ? duration : 2200;
+
+      const { pages } = composeSlide(slide.content, {
+        width: WIDTH, height: HEIGHT, theme: SLIDE_THEME, imageCache,
+      });
+
+      const totalWeight = pages.reduce((s, p) => s + p.weight, 0) || 1;
+      pages.forEach((page, p) => {
+        const span = (safe * page.weight) / totalWeight;
+        const blocks = Math.max(1, page.bounds.length);
+        segments.push({
+          page,
+          start: clock,
+          end: clock + span,
+          slideIndex: i,
+          pageIndex: p,
+          revealMs: Math.min(
+            Math.max(blocks * REVEAL_PER_BLOCK, REVEAL_MIN),
+            Math.min(REVEAL_MAX, span * 0.55),
+          ),
+        });
+        clock += span;
+      });
+
+      onProgress?.((i + 1) / slides.length);
+    });
+
+    return { segments, duration: clock };
+  };
+
+  /**
+   * Lazily bake pages at full reveal, keeping only a small window in memory.
+   *
+   * Once a page has finished revealing it is a static image for the rest of its
+   * span, so those frames collapse to one `drawImage` instead of replaying
+   * hundreds of paint ops — only the reveal window is painted op by op. Baking
+   * every page up front would be simpler, but at 1080p each canvas is ~8MB, so
+   * a long lesson would hold hundreds of megabytes for no reason: frames are
+   * produced in time order and never revisit an earlier page.
+   */
+  const createBaker = (segments, theme) => {
+    const cache = new Map();
+    const KEEP = 2;
+
+    return (i) => {
+      const hit = cache.get(i);
+      if (hit) return hit;
+
+      const c = document.createElement('canvas');
+      c.width = WIDTH;
+      c.height = HEIGHT;
+      const ctx = c.getContext('2d');
+      paintBackground(ctx, { width: WIDTH, height: HEIGHT, theme });
+      paintPage(ctx, segments[i].page, { t: 1, stagger: false });
+
+      cache.set(i, c);
+      for (const key of cache.keys()) {
+        if (key < i - KEEP) {
+          const stale = cache.get(key);
+          stale.width = 0;
+          stale.height = 0;
+          cache.delete(key);
+        }
+      }
+      return c;
+    };
+  };
+
+  /* --- main ----------------------------------------------------------- */
+
+  const processRequest = useCallback(async (prompt) => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setStatus('generating_script');
+    setError(null);
+    setVideo(null);
+    targetRef.current = 0;
+    currentRef.current = 0;
+    setProgress(0);
+
+    const chatID = `chat_${Math.random().toString(36).slice(2, 11)}_${Date.now()}`;
+    const theme = getTheme(SLIDE_THEME);
+
+    try {
+      /* 1. script + media, streamed */
+      const response = await fetch(`${server_url}/api/explain`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, chatID }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) throw new Error(`Server returned ${response.status}`);
+      if (!response.body) throw new Error('Streaming is not supported in this browser.');
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          let event;
+          try { event = JSON.parse(line); } catch { continue; }
+
+          if (event.type === 'error') throw new Error(event.message);
+          if (event.type !== 'progress') continue;
+
+          const msg = String(event.message || '');
+          if (/image/i.test(msg)) setStatus('generating_images');
+          else if (/audio|step/i.test(msg)) setStatus('generating_audio');
+          else setStatus('generating_script');
+
+          // `!= null` matters: a legitimate `progress: 0` is falsy and the old
+          // check dropped it.
+          if (event.progress != null) {
+            const pct = Number(event.progress) / 100;
+            setTarget(pct < 0.2 ? lerp(PHASE.script, pct / 0.2) : lerp(PHASE.media, (pct - 0.2) / 0.8));
+          }
+        }
+      }
+
+      /* 2. assets */
+      setStatus('loading_images');
+      setTarget(PHASE.assets[0]);
+
+      const slides = await (await fetch(`${server_url}/${chatID}/json/j1.json`, { signal: controller.signal })).json();
+      if (!Array.isArray(slides) || !slides.length) throw new Error('The lesson came back empty. Try rephrasing your topic.');
+
+      const imageCache = await preloadImages(slides);
+      setTarget(PHASE.assets[0] + 4);
+
+      const audioBlob = await (await fetch(`${server_url}/${chatID}/merged/output.wav`, { signal: controller.signal })).blob();
+      setTarget(PHASE.assets[1]);
+
+      /* 3. layout */
+      setStatus('rendering');
+      await ensureFonts();
+      const { segments, duration } = buildTimeline(slides, imageCache, (t) => setTarget(lerp(PHASE.compose, t)));
+      if (!segments.length) throw new Error('Nothing to render.');
+
+      const canvas = canvasRef.current;
+      if (!canvas) throw new Error('Render surface is not ready.');
+      canvas.width = WIDTH;
+      canvas.height = HEIGHT;
+      const ctx = canvas.getContext('2d', { alpha: false });
+
+      const baked = createBaker(segments, theme);
+      const totalSlides = slides.length;
+
+      let cursor = 0;
+      const drawFrame = (timeMs) => {
+        while (cursor < segments.length - 1 && timeMs >= segments[cursor].end) cursor++;
+        while (cursor > 0 && timeMs < segments[cursor].start) cursor--;
+
+        const seg = segments[cursor];
+        const local = timeMs - seg.start;
+        const remaining = seg.end - timeMs;
+
+        if (local < seg.revealMs) {
+          paintBackground(ctx, { width: WIDTH, height: HEIGHT, theme });
+          paintPage(ctx, seg.page, { t: local / seg.revealMs });
+        } else if (remaining < OUTRO_MS && cursor < segments.length - 1) {
+          // Ease the outgoing page down so the cut to the next one isn't abrupt.
+          paintBackground(ctx, { width: WIDTH, height: HEIGHT, theme });
+          ctx.save();
+          ctx.globalAlpha = Math.max(0, remaining / OUTRO_MS);
+          ctx.drawImage(baked(cursor), 0, 0);
+          ctx.restore();
+        } else {
+          ctx.drawImage(baked(cursor), 0, 0);
         }
 
+        paintChrome(ctx, {
+          width: WIDTH, height: HEIGHT, theme,
+          index: seg.slideIndex, total: totalSlides,
+          progress: timeMs / duration,
+        });
+      };
+
+      /* 4. encode */
+      setStatus('merging');
+      const onEncode = (t) => setTarget(lerp(PHASE.encode, t));
+
+      let blob;
+      if (useWebCodecsRef.current) {
         try {
-            const ffmpeg = createFFmpeg({
-                log: false,
-                corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
-            });
-            await ffmpeg.load();
-            ffmpegRef.current = ffmpeg;
-            setIsEngineLoaded(true);
-            console.log("FFmpeg loaded successfully");
+          blob = await encodeMp4({
+            canvas, fps: FPS, durationMs: duration, drawFrame, audioBlob,
+            onProgress: onEncode, signal: controller.signal,
+          });
         } catch (err) {
-            console.error("FFmpeg load failed:", err);
-            // We don't throw blocking error here to allow retry, but for splash screen we might wanna handle it.
-            // For now, let's just log. Splash screen will stay indefinitely or we can add a timeout error.
-            // throw new Error("Failed to load video engine.");
+          console.warn('WebCodecs encode failed, falling back:', err);
+          blob = null;
         }
-    };
+      }
 
-    useEffect(() => {
-        // Attempt initial load
-        loadFFmpeg().catch(err => {
-            console.warn("Initial FFmpeg load failed, will retry on demand.");
-            setError("Video engine failed to load. It will retry when you generate.");
+      if (!blob) {
+        const ffmpeg = await loadFfmpeg();
+        blob = await encodeFallback({
+          canvas, fps: FALLBACK_FPS, durationMs: duration, drawFrame, audioBlob,
+          onProgress: onEncode, signal: controller.signal, ffmpeg,
         });
-    }, []);
+      }
 
-    const generateChatID = () => {
-        return 'chat_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
-    };
+      if (controller.signal.aborted) return;
 
-    const processRequest = async (prompt) => {
-        setStatus('generating_script');
-        setTargetProgress(0);
-        currentProgressRef.current = 0;
-        setProgress(0);
-        setError(null);
-        setVideoUrl(null);
+      const mimeType = blob.type || 'video/mp4';
+      setVideo({
+        url: URL.createObjectURL(blob),
+        mimeType,
+        ext: mimeType.includes('mp4') ? 'mp4' : 'webm',
+        durationMs: duration,
+      });
 
-        // Retry loading FFmpeg if needed
-        if (!ffmpegRef.current) {
-            try {
-                await loadFFmpeg();
-            } catch (err) {
-                setError(err.message);
-                setStatus('error');
-                return;
-            }
-        }
+      setTarget(100);
+      setTimeout(() => setStatus('done'), 400);
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      console.error(err);
+      setError(err.message || 'Something went wrong while generating your video.');
+      setStatus('error');
+    }
+  }, [setTarget]);
 
-        chatID.current = generateChatID();
+  const cancel = useCallback(() => {
+    abortRef.current?.abort();
+    setStatus('idle');
+  }, []);
 
-        // Trickle progress while waiting for script
-        const trickleInterval = setInterval(() => {
-            if (targetProgressRef.current < 25) {
-                targetProgressRef.current += 2;
-            }
-        }, 500);
+  useEffect(() => () => abortRef.current?.abort(), []);
 
-        try {
-            // Step 1: Send request to backend (Streaming)
-            const response = await fetch(`${server_url}/api/explain`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt, chatID: chatID.current })
-            });
-
-            clearInterval(trickleInterval);
-
-            if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
-            if (!response.body) throw new Error('ReadableStream not supported in this browser.');
-
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder("utf-8");
-            let buffer = "";
-
-            while (true) {
-                const { value, done } = await reader.read();
-                if (done) break;
-
-                const chunk = decoder.decode(value, { stream: true });
-                buffer += chunk;
-                const lines = buffer.split("\n");
-
-                // Process all complete lines
-                buffer = lines.pop(); // Keep the last incomplete line in buffer
-
-                for (const line of lines) {
-                    if (!line.trim()) continue;
-                    try {
-                        const event = JSON.parse(line);
-
-                        if (event.type === 'progress') {
-                            // Update Status Text based on message
-                            if (event.message.includes("Generating image")) {
-                                setStatus('generating_images');
-                            } else if (event.message.includes("audio")) {
-                                setStatus('generating_audio');
-                            } else {
-                                setStatus('generating_script'); // Default fallback
-                            }
-
-                            // Update Numeric Progress if provided
-                            if (event.progress) {
-                                setTargetProgress(event.progress);
-                            }
-
-                        } else if (event.type === 'error') {
-                            throw new Error(event.message);
-                        } else if (event.type === 'complete') {
-                            console.log("Generation complete!");
-                        }
-                    } catch (e) {
-                        console.warn("Error parsing stream line:", line, e);
-                    }
-                }
-            }
-
-            // After stream is done, we proceed to frontend rendering
-            setStatus('loading_resources'); // New intermediate status
-            setTargetProgress(100); // Backend part done
-
-            // Allow valid '100' to settle before resetting for frontend phase
-            await new Promise(r => setTimeout(r, 500));
-
-            // Reset for frontend phase
-            setTargetProgress(0);
-            setProgress(0);
-            currentProgressRef.current = 0;
-
-            setStatus('loading_images');
-            const jsonUrl = `${server_url}/${chatID.current}/json/j1.json`;
-            const slidesData = await (await fetch(jsonUrl)).json();
-
-            // Step 2.1: Pre-load Images
-            setStatus('loading_images');
-            const imageCache = await preloadImages(slidesData);
-
-            setTargetProgress(40);
-
-            const audioUrl = `${server_url}/${chatID.current}/merged/output.wav`;
-            const audioBlob = await (await fetch(audioUrl)).blob();
-
-            setTargetProgress(50);
-            setStatus('rendering');
-
-            // Step 3: Render visuals
-            const videoBlob = await renderVisuals(slidesData, imageCache, (pct) => {
-                const overall = 50 + (pct * 0.4);
-                setTargetProgress(overall);
-            });
-
-            setStatus('merging');
-            setTargetProgress(95);
-
-            // Step 4: Merge audio/video
-            const finalBlob = await mergeAudioVideo(videoBlob, audioBlob);
-
-            const finalUrl = URL.createObjectURL(finalBlob);
-            setVideoUrl(finalUrl);
-
-            setTargetProgress(100);
-            setTimeout(() => {
-                setStatus('done');
-            }, 500);
-
-        } catch (err) {
-            console.error(err);
-            clearInterval(trickleInterval);
-            setError(err.message);
-            setStatus('error');
-        }
-    };
-
-    const extractImageUrls = (markdown) => {
-        const regex = /!\[.*?\]\((.*?)\)/g;
-        const urls = [];
-        let match;
-        while ((match = regex.exec(markdown)) !== null) {
-            urls.push(match[1]);
-        }
-        return urls;
-    };
-
-    const preloadImages = async (slides) => {
-        const cache = {};
-        const allContent = slides.map(s => s.content).join('\n');
-        const urls = extractImageUrls(allContent);
-
-        const uniqueUrls = [...new Set(urls)];
-
-        const promises = uniqueUrls.map(url => {
-            return new Promise((resolve, reject) => {
-                const img = new Image();
-                img.crossOrigin = "anonymous"; // Important for canvas export
-                img.onload = () => {
-                    cache[url] = img;
-                    resolve();
-                };
-                img.onerror = () => {
-                    console.warn(`Failed to load image: ${url}`);
-                    resolve(); // Don't fail the whole video for one image
-                };
-                img.src = url;
-            });
-        });
-
-        await Promise.all(promises);
-        return cache;
-    };
-
-    const renderVisuals = (slidesData, imageCache, onProgress) => {
-        return new Promise((resolve, reject) => {
-            if (!canvasRef.current) return reject("No canvas found");
-
-            const canvas = canvasRef.current;
-            const ctx = canvas.getContext('2d');
-
-            // Prepare timing
-            let currentTime = 0;
-            const slides = slidesData.map(slide => {
-                const s = { start: currentTime, end: currentTime + slide.time, content: slide.content };
-                currentTime += slide.time;
-                return s;
-            });
-
-            const totalDuration = currentTime;
-            const fps = 2;
-            const frameDuration = 1000 / fps;
-            let virtualTime = 0;
-
-            const capturer = new CCapture({
-                format: 'webm',
-                framerate: fps,
-                quality: 85,
-                verbose: false
-            });
-
-            capturer.start();
-
-            const renderFrame = () => {
-                const currentSlide = slides.find(s => virtualTime >= s.start && virtualTime < s.end);
-
-                if (currentSlide) {
-                    const renderer = new CanvasMarkupRenderer(ctx, canvas.width, canvas.height, {
-                        fontSize: 36,
-                        lineHeight: 52,
-                        imageCache: imageCache
-                    });
-                    renderer.render(currentSlide.content);
-                } else {
-                    ctx.fillStyle = "#0f172a"; // Match Slate-900
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                }
-
-                capturer.capture(canvas);
-                virtualTime += frameDuration;
-
-                const pct = Math.min((virtualTime / totalDuration) * 100, 100);
-                onProgress(pct);
-
-                if (virtualTime < totalDuration) {
-                    setTimeout(renderFrame, 0);
-                } else {
-                    capturer.stop();
-                    capturer.save((blob) => resolve(blob));
-                }
-            };
-
-            renderFrame();
-        });
-    };
-
-    const mergeAudioVideo = async (videoBlob, audioBlob) => {
-        if (!ffmpegRef.current) throw new Error("FFmpeg not loaded");
-        const ffmpeg = ffmpegRef.current;
-
-        const videoData = await fetchFile(videoBlob);
-        const audioData = await fetchFile(audioBlob);
-
-        ffmpeg.FS('writeFile', 'video.webm', videoData);
-        ffmpeg.FS('writeFile', 'audio.wav', audioData);
-
-        await ffmpeg.run(
-            '-i', 'video.webm',
-            '-i', 'audio.wav',
-            '-c:v', 'copy',
-            '-c:a', 'libopus',
-            '-strict', 'experimental',
-            '-shortest',
-            'temp_output.webm'
-        );
-
-        // Run a second pass to fix the container duration/seeking
-        // This remuxing step forces FFmpeg to write the correct duration header
-        await ffmpeg.run(
-            '-i', 'temp_output.webm',
-            '-c', 'copy',
-            'output.webm'
-        );
-
-        const data = ffmpeg.FS('readFile', 'output.webm');
-        return new Blob([data.buffer], { type: 'video/webm' });
-    };
-
-    return { processRequest, status, progress, error, videoUrl, canvasRef, isEngineLoaded };
+  return {
+    processRequest,
+    cancel,
+    status,
+    progress,
+    error,
+    video,
+    videoUrl: video?.url ?? null,
+    canvasRef,
+    isEngineLoaded,
+  };
 };

@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "verify:render": "node scripts/verify-render.mjs",
+    "preview:slides": "node scripts/preview.mjs",
+    "calibrate": "node scripts/calibrate-budget.mjs"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.11.6",
@@ -18,6 +21,7 @@
     "framer-motion": "^12.26.1",
     "lucide-react": "^0.562.0",
     "markdown-it": "^14.1.0",
+    "mp4-muxer": "^5.2.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "tailwind-merge": "^3.4.0",

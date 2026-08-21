@@ -1,90 +1,87 @@
+import React from 'react';
+import { FileText, AudioLines, Image as ImageIcon, MonitorPlay, Check } from 'lucide-react';
+import clsx from 'clsx';
 
-import React, { useEffect, useState } from 'react';
-import { Loader2, Film, Music, MonitorPlay, CheckCircle2 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+const STEPS = [
+  { id: 'script', label: 'Script', icon: FileText, statuses: ['generating_script'] },
+  { id: 'media', label: 'Voice & visuals', icon: AudioLines, statuses: ['generating_images', 'generating_audio'] },
+  { id: 'load', label: 'Assets', icon: ImageIcon, statuses: ['loading_resources', 'loading_images'] },
+  { id: 'render', label: 'Rendering', icon: MonitorPlay, statuses: ['rendering'] },
+  { id: 'merge', label: 'Finalizing', icon: Check, statuses: ['merging'] },
+];
 
-const ProgressOverlay = ({ status, progress }) => {
-  const [funFact, setFunFact] = useState("");
-  
-  const facts = [
-    "Our AI analyzes thousands of educational videos to create the best content.",
-    "Videos are typically rendered at 30 frames per second for smoothness.",
-    "We use neural networks to synthesize human-like speech.",
-    "Canvas rendering allows for infinite scalability without server GPUs.",
-  ];
-
-  useEffect(() => {
-    setFunFact(facts[Math.floor(Math.random() * facts.length)]);
-    const interval = setInterval(() => {
-        setFunFact(facts[Math.floor(Math.random() * facts.length)]);
-    }, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const steps = [
-    { id: 'generating_script', icon: Film, label: "Writing Script" },
-    { id: 'generating_audio', icon: Music, label: "Synthesizing Audio" },
-    { id: 'rendering', icon: MonitorPlay, label: "Rendering Visuals" },
-    { id: 'merging', icon: CheckCircle2, label: "Finalizing" },
-  ];
-
-  const currentStepIdx = steps.findIndex(s => s.id === status) || 0;
+const ProgressOverlay = ({ status, progress, prompt }) => {
+  const activeIdx = Math.max(
+    STEPS.findIndex((s) => s.statuses.includes(status)),
+    0
+  );
 
   return (
-    <div className="w-full max-w-lg mx-auto my-6">
-        <div className="bg-[#0f111a]/90 backdrop-blur-xl border border-white/10 rounded-3xl p-8 shadow-2xl shadow-purple-900/10 relative overflow-hidden">
-            {/* Background Glow */}
-            <div className="absolute -top-20 -left-20 w-60 h-60 bg-purple-500/10 rounded-full blur-[100px] animate-pulse"></div>
-            <div className="absolute -bottom-20 -right-20 w-60 h-60 bg-blue-500/10 rounded-full blur-[100px] animate-pulse" style={{ animationDelay: '1s' }}></div>
-
-            <div className="relative z-10">
-                <div className="flex justify-between items-center mb-6">
-                     <h3 className="text-white font-medium flex items-center">
-                        <Loader2 className="w-5 h-5 mr-2 animate-spin text-purple-400" />
-                        Generating Video...
-                     </h3>
-                     <span className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-blue-400">
-                        {Math.round(progress)}%
-                     </span>
-                </div>
-
-                {/* Progress Bar */}
-                <div className="h-2 w-full bg-slate-700 rounded-full overflow-hidden mb-8">
-                    <div 
-                        className="h-full bg-gradient-to-r from-purple-500 to-blue-500 transition-all duration-75 ease-out"
-                        style={{ width: `${progress}%` }}
-                    />
-                </div>
-
-                {/* Steps */}
-                <div className="grid grid-cols-4 gap-2 mb-6 relative">
-                    {/* Connecting line */}
-                    <div className="absolute top-4 left-0 w-full h-0.5 bg-slate-700 -z-10"></div>
-                    
-                    {steps.map((step, idx) => {
-                        const isActive = steps.findIndex(s => s.id === status) >= idx;
-                        const isCurrent = status === step.id;
-                        
-                        return (
-                            <div key={step.id} className="flex flex-col items-center text-center">
-                                <div className={`w-8 h-8 rounded-full flex items-center justify-center mb-2 transition-colors duration-300 ${isActive ? 'bg-purple-500 text-white shadow-lg shadow-purple-500/30' : 'bg-slate-700 text-slate-400'}`}>
-                                    <step.icon className="w-4 h-4" />
-                                </div>
-                                <span className={`text-[10px] uppercase font-bold tracking-wider transition-colors ${isActive ? 'text-purple-300' : 'text-slate-500'}`}>
-                                    {step.label}
-                                </span>
-                            </div>
-                        )
-                    })}
-                </div>
-
-                {/* <div className="text-center">
-                    <p className="text-slate-400 text-sm italic">
-                        "{funFact}"
-                    </p>
-                </div> */}
-            </div>
+    <div className="rounded-2xl border border-line bg-ink-900 p-5 sm:p-6">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-70" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
+            </span>
+            <span className="text-[13px] font-semibold text-mist-100">Generating video</span>
+          </div>
+          {prompt ? (
+            <p className="mt-1.5 truncate text-[13px] text-mist-400">{prompt}</p>
+          ) : null}
         </div>
+        <span className="text-2xl font-bold tabular-nums text-accent-fg">
+          {Math.round(progress)}%
+        </span>
+      </div>
+
+      {/*
+        The bar restates the percentage shown above it, so it carries the value
+        via ARIA rather than relying on fill-vs-track contrast alone — no track
+        light enough to clear 3:1 against the accent stays visible on a white card.
+      */}
+      <div
+        role="progressbar"
+        aria-valuenow={Math.round(progress)}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label="Video generation progress"
+        className="relative mt-4 h-1.5 w-full overflow-hidden rounded-full bg-ink-700"
+      >
+        <div
+          className="h-full rounded-full bg-accent transition-[width] duration-150 ease-out"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+
+      {/* Steps */}
+      <div className="mt-5 flex flex-wrap gap-2">
+        {STEPS.map((step, idx) => {
+          const done = idx < activeIdx;
+          const current = idx === activeIdx;
+          return (
+            <div
+              key={step.id}
+              className={clsx(
+                'flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11.5px] font-medium transition-colors',
+                current
+                  ? 'border-accent-line bg-accent-soft text-accent-fg'
+                  : done
+                    ? 'border-line bg-ink-850 text-mist-300'
+                    : 'border-line bg-ink-850 text-mist-500'
+              )}
+            >
+              {done ? (
+                <Check className="h-3.5 w-3.5" />
+              ) : (
+                <step.icon className={clsx('h-3.5 w-3.5', current && 'animate-pulse')} />
+              )}
+              {step.label}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 };
