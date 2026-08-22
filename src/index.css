@@ -179,3 +179,190 @@ a {
 .ff-fade-up {
   animation: ff-fade-up 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
+
+/* ==========================================================================
+ * Marketing + docs surface
+ *
+ * Everything below is only used by the public landing page and the "How it
+ * works" docs page. It is built from the same tokens as the app, so the two
+ * halves of the product read as one thing — no second palette, no second
+ * type scale.
+ * ========================================================================== */
+
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .ff-fade-up,
+  .ff-float,
+  .ff-marquee-track,
+  .ff-spin-slow {
+    animation: none !important;
+  }
+}
+
+/* Anchor targets clear the sticky header instead of hiding under it. */
+[id] {
+  scroll-margin-top: 92px;
+}
+
+/* --- backdrops ----------------------------------------------------------- */
+
+/*
+ * Blueprint grid. Two hairline gradients rather than an image, so it inherits
+ * the theme's line colour and costs nothing to download.
+ */
+.ff-grid {
+  background-image:
+    linear-gradient(to right, var(--color-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-line) 1px, transparent 1px);
+  background-size: 64px 64px;
+}
+
+/* Fades a backdrop out towards the edges so it never ends on a hard line. */
+.ff-fade-mask {
+  mask-image: radial-gradient(ellipse 78% 62% at 50% 32%, #000 32%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 78% 62% at 50% 32%, #000 32%, transparent 100%);
+}
+
+/* The accent bloom behind the hero. */
+.ff-bloom {
+  background: radial-gradient(
+    ellipse 60% 46% at 50% 0%,
+    var(--color-accent-soft) 0%,
+    transparent 72%
+  );
+}
+
+/* --- surfaces ------------------------------------------------------------ */
+
+/*
+ * A card whose top hairline catches the light, the way a raised surface does.
+ * Cheaper and more consistent than per-card border colours.
+ */
+.ff-card {
+  position: relative;
+  isolation: isolate;
+}
+
+.ff-card::before {
+  content: "";
+  position: absolute;
+  inset-inline: 12%;
+  top: -1px;
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--color-line-strong), transparent);
+  pointer-events: none;
+}
+
+/* --- motion -------------------------------------------------------------- */
+
+@keyframes ff-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+@keyframes ff-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes ff-spin-slow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ff-dash {
+  to {
+    stroke-dashoffset: -28;
+  }
+}
+
+.ff-float {
+  animation: ff-float 6s ease-in-out infinite;
+}
+
+.ff-spin-slow {
+  animation: ff-spin-slow 22s linear infinite;
+}
+
+.ff-marquee-track {
+  animation: ff-marquee 34s linear infinite;
+}
+
+.ff-marquee:hover .ff-marquee-track {
+  animation-play-state: paused;
+}
+
+/* Signal flowing along a wire in the architecture diagrams. */
+.ff-wire-flow {
+  stroke-dasharray: 6 8;
+  animation: ff-dash 1.4s linear infinite;
+}
+
+/* --- typography ---------------------------------------------------------- */
+
+.ff-prose-lead {
+  font-size: 16.5px;
+  line-height: 1.75;
+  color: var(--color-mist-400);
+}
+
+/* Inline code inside body copy. */
+.ff-code {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.86em;
+  padding: 0.12em 0.4em;
+  border-radius: 5px;
+  background: var(--color-ink-800);
+  border: 1px solid var(--color-line);
+  color: var(--color-mist-100);
+  white-space: nowrap;
+}
+
+.ff-mono {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* --- clerk ---------------------------------------------------------------
+ * Clerk renders its own DOM. Its appearance API covers colour and radius, but
+ * the outer card shadow has to be neutralised here or it fights the flat,
+ * hairline-only look of the rest of the product.
+ */
+.cl-cardBox,
+.cl-card {
+  box-shadow: none !important;
+}
+
+/* --- code tokens ---------------------------------------------------------
+ * Used by the docs page's code samples. A separate small ramp from the UI
+ * accent, because syntax needs several hues to be readable and the accent
+ * only provides one.
+ */
+@theme {
+  --color-tok-key: #9ad2ff;
+  --color-tok-str: #b4f24a;
+  --color-tok-num: #ffd479;
+  --color-tok-com: #6b6b76;
+}
+
+:root[data-theme="light"] {
+  --color-tok-key: #0b6ea8;
+  --color-tok-str: #3f7a00;
+  --color-tok-num: #a35a00;
+  --color-tok-com: #8f8f9a;
+}

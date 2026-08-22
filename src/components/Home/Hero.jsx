@@ -68,7 +68,7 @@ const HeroArt = () => (
   </svg>
 );
 
-const Hero = () => (
+const Hero = ({ name }) => (
   <section className="flex items-center justify-between gap-8">
     <div className="min-w-0">
       <div className="flex items-center gap-2.5">
@@ -76,7 +76,7 @@ const Hero = () => (
           <Play className="h-3 w-3 fill-current" />
         </span>
         <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mist-400">
-          AI Video Generator
+          {name ? `Welcome back, ${name}` : 'AI Video Generator'}
         </span>
       </div>
 
