@@ -91,7 +91,9 @@ const studio = {
   tableZebra: '#F8FAFC',
 
   shadow: 'rgba(15, 32, 56, 0.10)',
-  imageFrame: '#E4EAF1',
+  // No frame. Generated art now carries a board-matched background, so a
+  // stroke here only draws a rectangle around the seam it is meant to hide.
+  imageFrame: null,
 
   syntax: {
     keyword: '#9B2673',
@@ -147,7 +149,8 @@ const midnight = {
   tableZebra: '#111923',
 
   shadow: 'rgba(0, 0, 0, 0.45)',
-  imageFrame: '#243040',
+  // See `studio` above: a frame would outline the image's own background.
+  imageFrame: null,
 
   syntax: {
     keyword: '#F08FC8', string: '#7FD9AC', number: '#F5B476', comment: '#66788E',
