@@ -12,7 +12,7 @@ const HEIGHT = 1080;
 const FPS = 30;
 const FALLBACK_FPS = 6;
 
-const SLIDE_THEME = 'studio';
+const SLIDE_THEME = 'midnight';
 
 /** How long a slide's content takes to write itself on, and to clear. */
 const REVEAL_PER_BLOCK = 240;
