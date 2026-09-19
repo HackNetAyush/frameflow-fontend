@@ -7,12 +7,14 @@ import AppShell from '../components/Layout/AppShell';
 import LoadingScreen from '../components/Layout/LoadingScreen';
 import Hero from '../components/Home/Hero';
 import PromptBar from '../components/Home/PromptBar';
+import StudioOptions from '../components/Home/StudioOptions';
 import VideoCard from '../components/Video/VideoCard';
 import VideoPlayer from '../components/Video/VideoPlayer';
 import ProgressOverlay from '../components/Video/ProgressOverlay';
 
 import { useVideos } from '../hooks/useVideos';
 import { useVideoGenerator } from '../hooks/useVideoGenerator';
+import { useVideoOptions } from '../hooks/useVideoOptions';
 
 const EmptyState = ({ compact }) => (
   <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-line py-14 text-center">
@@ -34,6 +36,7 @@ const Studio = () => {
   const { user } = useUser();
 
   const { videos, addVideo, removeVideo } = useVideos();
+  const { options, set: setOption, reset: resetOptions } = useVideoOptions();
   const { processRequest, status, progress, error, video, videoUrl, canvasRef, isEngineLoaded } =
     useVideoGenerator();
 
@@ -49,7 +52,9 @@ const Studio = () => {
   const handleGenerate = (prompt) => {
     setActivePrompt(prompt);
     navigate('/app');
-    processRequest(prompt);
+    // Passed by value, so editing the panel mid-render cannot change the video
+    // that is already being made.
+    processRequest(prompt, options);
   };
 
   const handleDownload = (item) => {
@@ -124,7 +129,15 @@ const Studio = () => {
               {isGenerating ? (
                 <ProgressOverlay status={status} progress={progress} prompt={activePrompt} />
               ) : (
-                <PromptBar onSubmit={handleGenerate} disabled={isGenerating} />
+                <>
+                  <PromptBar onSubmit={handleGenerate} disabled={isGenerating} />
+                  <StudioOptions
+                    options={options}
+                    onChange={setOption}
+                    onReset={resetOptions}
+                    disabled={isGenerating}
+                  />
+                </>
               )}
             </div>
 

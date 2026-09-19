@@ -1,3 +1,5 @@
+import { accentRamp } from '../lib/color.js';
+
 /**
  * Slide design tokens.
  *
@@ -173,7 +175,49 @@ const midnight = {
 
 export const THEMES = { studio, midnight };
 
-export const getTheme = (name) => THEMES[name] || studio;
+/**
+ * The board the app renders when nobody has chosen one.
+ *
+ * Mirrored by the backend's `DEFAULT_THEME` (`src/prompts/boards.js`), which
+ * decides which board generated artwork is drawn FOR. The two drifting apart
+ * is not a cosmetic bug: art painted for one board and composited onto the
+ * other arrives as a bright card floating on a dark slide.
+ */
+export const DEFAULT_THEME = 'midnight';
+
+/**
+ * Resolve a theme, optionally recoloured to a user-chosen accent.
+ *
+ * Only tokens that *are* the accent are replaced. The `swatch` ramp is left
+ * alone on purpose: those are the semantic colours `[text]{teal}` names
+ * explicitly in the markdown, so overriding teal there would silently change
+ * what an author asked for. The accent is chrome; the swatches are content.
+ *
+ * @param {string} name
+ * @param {{accent?: string|null}} [overrides]
+ */
+export const getTheme = (name, overrides) => {
+  const base = THEMES[name] || THEMES[DEFAULT_THEME];
+  const accent = overrides?.accent;
+  if (!accent) return base;
+
+  // Derived against this theme's own board, so the same accent stays legible
+  // whichever board it is dropped onto. See `src/lib/color.js`.
+  const ramp = accentRamp(accent, base.bg);
+
+  return {
+    ...base,
+    ...ramp,
+    quoteBar: ramp.accent,
+    callout: {
+      ...base.callout,
+      // The "key" callout is the accent's panel — the other four carry their
+      // own semantic hues (warn is amber because warnings are amber) and must
+      // not follow the brand colour around.
+      key: { ...base.callout.key, bg: ramp.accentWash, bar: ramp.accent, ink: ramp.accentInk },
+    },
+  };
+};
 
 /**
  * Frame geometry. Margins are proportional so 9:16 and 1:1 presets work without

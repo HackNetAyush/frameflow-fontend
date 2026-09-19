@@ -3,6 +3,8 @@ import {
   composeSlide, paintBackground, paintChrome, paintPage, ensureFonts, getTheme,
 } from '../render';
 import { encodeMp4, encodeFallback, supportsWebCodecs } from '../video/encoder';
+import { DEFAULTS } from '../lib/videoOptions';
+import { ensureReadable } from '../lib/color';
 
 const server_url = import.meta.env.VITE_SERVER_URL;
 
@@ -12,7 +14,23 @@ const HEIGHT = 1080;
 const FPS = 30;
 const FALLBACK_FPS = 6;
 
-const SLIDE_THEME = 'midnight';
+/**
+ * What the server is told, given what the user picked.
+ *
+ * The accent is resolved here rather than sent raw, because "legible" is a
+ * question about a specific background and only the client knows which one the
+ * artwork will sit on: the board colour normally, but the user's own fill when
+ * they have chosen one. Sending the adjusted value keeps the linework in the
+ * pictures and the rules on the slides the same colour — the whole point of
+ * having an accent setting at all.
+ */
+const toPayload = (options) => {
+  const surface = options.background === 'custom' && options.backgroundColor
+    ? options.backgroundColor
+    : getTheme(options.theme).bg;
+
+  return { ...options, accent: options.accent ? ensureReadable(options.accent, surface) : null };
+};
 
 /** How long a slide's content takes to write itself on, and to clear. */
 const REVEAL_PER_BLOCK = 240;
@@ -161,7 +179,7 @@ export const useVideoGenerator = () => {
    * narration window between them by content weight, so audio and visuals stay
    * locked together no matter how the fitter paginated.
    */
-  const buildTimeline = (slides, imageCache, onProgress) => {
+  const buildTimeline = (slides, imageCache, theme, onProgress) => {
     const segments = [];
     let clock = 0;
 
@@ -172,7 +190,7 @@ export const useVideoGenerator = () => {
       const safe = Number.isFinite(duration) && duration > 0 ? duration : 2200;
 
       const { pages } = composeSlide(slide.content, {
-        width: WIDTH, height: HEIGHT, theme: SLIDE_THEME, imageCache,
+        width: WIDTH, height: HEIGHT, theme, imageCache,
       });
 
       const totalWeight = pages.reduce((s, p) => s + p.weight, 0) || 1;
@@ -239,7 +257,7 @@ export const useVideoGenerator = () => {
 
   /* --- main ----------------------------------------------------------- */
 
-  const processRequest = useCallback(async (prompt) => {
+  const processRequest = useCallback(async (prompt, options = DEFAULTS) => {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -251,15 +269,26 @@ export const useVideoGenerator = () => {
     currentRef.current = 0;
     setProgress(0);
 
-    const chatID = `chat_${Math.random().toString(36).slice(2, 11)}_${Date.now()}`;
-    const theme = getTheme(SLIDE_THEME);
+    /**
+     * Assigned by the server, which announces it on the stream before any work
+     * starts. The client used to mint this itself, but the id is the server's
+     * storage key: choosing it meant any caller could overwrite another
+     * session's slides by reusing its id, or read one back by guessing it —
+     * and `Math.random` made guessing realistic.
+     */
+    let chatId = null;
+
+    // One resolved theme object for the whole render: the board the user chose,
+    // recoloured to their accent. Passed around rather than looked up per slide
+    // so every page of a lesson is painted from the identical token set.
+    const theme = getTheme(options.theme, { accent: options.accent });
 
     try {
       /* 1. script + media, streamed */
       const response = await fetch(`${server_url}/api/explain`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, chatID }),
+        body: JSON.stringify({ prompt, options: toPayload(options) }),
         signal: controller.signal,
       });
 
@@ -284,6 +313,10 @@ export const useVideoGenerator = () => {
           try { event = JSON.parse(line); } catch { continue; }
 
           if (event.type === 'error') throw new Error(event.message);
+          if (event.type === 'session') { chatId = event.chatId; continue; }
+          // Anything else — a heartbeat holding the connection open through a
+          // long model call, or an event type added later — is not ours to act
+          // on, and must not be mistaken for progress.
           if (event.type !== 'progress') continue;
 
           const msg = String(event.message || '');
@@ -304,19 +337,22 @@ export const useVideoGenerator = () => {
       setStatus('loading_images');
       setTarget(PHASE.assets[0]);
 
-      const slides = await (await fetch(`${server_url}/${chatID}/json/j1.json`, { signal: controller.signal })).json();
+      // A stream that closed without one means the run never really started.
+      if (!chatId) throw new Error('The server did not start a session for this request.');
+
+      const slides = await (await fetch(`${server_url}/${chatId}/json/j1.json`, { signal: controller.signal })).json();
       if (!Array.isArray(slides) || !slides.length) throw new Error('The lesson came back empty. Try rephrasing your topic.');
 
       const imageCache = await preloadImages(slides);
       setTarget(PHASE.assets[0] + 4);
 
-      const audioBlob = await (await fetch(`${server_url}/${chatID}/merged/output.wav`, { signal: controller.signal })).blob();
+      const audioBlob = await (await fetch(`${server_url}/${chatId}/merged/output.wav`, { signal: controller.signal })).blob();
       setTarget(PHASE.assets[1]);
 
       /* 3. layout */
       setStatus('rendering');
       await ensureFonts();
-      const { segments, duration } = buildTimeline(slides, imageCache, (t) => setTarget(lerp(PHASE.compose, t)));
+      const { segments, duration } = buildTimeline(slides, imageCache, theme, (t) => setTarget(lerp(PHASE.compose, t)));
       if (!segments.length) throw new Error('Nothing to render.');
 
       const canvas = canvasRef.current;

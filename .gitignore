@@ -12,6 +12,13 @@ dist
 dist-ssr
 *.local
 
+# Local environment. Vite bakes VITE_* into the bundle at build time, so a
+# committed .env is not a secret leak but it is worse: it silently decides what
+# every build points at. Production values come from CI secrets instead.
+.env
+.env.*
+!.env.example
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
