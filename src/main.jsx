@@ -8,7 +8,8 @@ import { ThemeProvider } from './theme/ThemeContext.jsx'
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>
-      {/* Theme sits above the router because Clerk's appearance depends on it. */}
+      {/* Theme sits above the router so the whole app, including the auth
+          pages, reads the active palette. */}
       <ThemeProvider>
         <App />
       </ThemeProvider>

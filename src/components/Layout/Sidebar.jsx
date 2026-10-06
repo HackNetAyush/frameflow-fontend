@@ -1,10 +1,12 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Home, PlaySquare, BookOpen, Cpu, X, ArrowUpRight } from 'lucide-react';
-import { UserButton, useUser } from '@clerk/clerk-react';
+import { Home, PlaySquare, BookOpen, Cpu, X, ArrowUpRight, ChevronsUpDown } from 'lucide-react';
 import clsx from 'clsx';
 
 import Brand from './Brand';
+import AccountMenu from '../Auth/AccountMenu';
+import Avatar from '../Auth/Avatar';
+import { useSession } from '../../lib/authClient';
 
 const NAV = [
   { to: '/app', label: 'Home', icon: Home, end: true },
@@ -12,7 +14,8 @@ const NAV = [
 ];
 
 const Sidebar = ({ videoCount, isEngineReady, isOpen, onClose }) => {
-  const { user } = useUser();
+  const { data } = useSession();
+  const user = data?.user;
 
   const itemClass = ({ isActive }) =>
     clsx(
@@ -110,21 +113,24 @@ const Sidebar = ({ videoCount, isEngineReady, isOpen, onClose }) => {
             </div>
           </div>
 
-          {/* Account */}
-          <div className="flex items-center gap-2.5 rounded-xl border border-line bg-ink-850 px-3 py-2.5">
-            <UserButton
-              afterSignOutUrl="/"
-              appearance={{ elements: { avatarBox: 'h-7 w-7' } }}
-            />
-            <div className="min-w-0">
-              <p className="truncate text-[12.5px] font-semibold text-mist-100">
-                {user?.firstName || user?.username || 'Signed in'}
-              </p>
-              <p className="truncate text-[11px] text-mist-500">
-                {user?.primaryEmailAddress?.emailAddress || 'Manage account'}
-              </p>
-            </div>
-          </div>
+          {/* Account — the whole card is the menu trigger */}
+          {user ? (
+            <AccountMenu
+              align="up"
+              triggerClassName="flex w-full items-center gap-2.5 rounded-xl border border-line bg-ink-850 px-3 py-2.5 text-left outline-none transition-colors hover:border-line-strong focus-visible:border-accent"
+            >
+              <Avatar user={user} className="h-7 w-7" />
+              <div className="min-w-0">
+                <p className="truncate text-[12.5px] font-semibold text-mist-100">
+                  {user.name || 'Signed in'}
+                </p>
+                <p className="truncate text-[11px] text-mist-500">
+                  {user.email || 'Manage account'}
+                </p>
+              </div>
+              <ChevronsUpDown className="ml-auto h-4 w-4 shrink-0 text-mist-500" />
+            </AccountMenu>
+          ) : null}
         </div>
       </aside>
     </>

@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 
 /**
  * Full-bleed splash. Used while the render engine warms up, and again while
- * Clerk resolves the session — same surface, different copy.
+ * the auth session resolves — same surface, different copy.
  */
 const LoadingScreen = ({
   message = 'Preparing your render engine…',

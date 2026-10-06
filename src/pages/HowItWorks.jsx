@@ -124,15 +124,15 @@ const videoBitrate = (w, h, fps) =>
 // 1920 × 1080 × 30 × 0.11 ≈ 6.8 Mbps — enough for text edges to stay crisp.`;
 
 const GUARD_SAMPLE = `// components/Auth/RequireAuth.jsx
-const { isLoaded, isSignedIn } = useAuth();
+const { data, isPending } = useSession();
 
-// The loading branch is the important one: rendering the redirect before Clerk
-// has resolved the session would bounce signed-in users out on every refresh.
-if (!isLoaded) return <LoadingScreen message="Checking your session…" />;
+// The loading branch is the important one: rendering the redirect before the
+// session resolves would bounce signed-in users out on every refresh.
+if (isPending) return <LoadingScreen message="Checking your session…" />;
 
-if (!isSignedIn) {
+if (!data?.user) {
   const target = location.pathname + location.search;
-  return <Navigate to={\`/sign-in?redirect_url=\${encodeURIComponent(target)}\`} replace />;
+  return <Navigate to={\`/sign-in?redirect=\${encodeURIComponent(target)}\`} replace />;
 }
 
 return children;`;
@@ -155,7 +155,7 @@ const FILES = [
 const ROUTES = [
   ['/', 'Public. Landing page.'],
   ['/how-it-works', 'Public. This document.'],
-  ['/sign-in/*, /sign-up/*', 'Public. Clerk owns every sub-path — verification, MFA, SSO callbacks.'],
+  ['/sign-in, /sign-up', 'Public. Email/password and Google sign-in.'],
   ['/app, /app/videos', 'Protected. Wrapped in RequireAuth; unauthenticated visits redirect with a return URL.'],
 ];
 
@@ -627,8 +627,8 @@ for (const root of roots) {
                 only expose to cross-origin-isolated pages. The app therefore sets{' '}
                 <span className="ff-code">COOP: same-origin</span> and{' '}
                 <span className="ff-code">COEP: credentialless</span> — the credentialless variant
-                keeps isolation while still allowing third-party scripts such as Clerk&apos;s to
-                load.
+                keeps isolation while still allowing third-party assets without CORP headers (such
+                as Google profile photos) to load.
               </Callout>
             </Section>
 
@@ -637,12 +637,13 @@ for (const root of roots) {
               id="auth"
               number="10"
               title="Accounts and access"
-              lead="Sign-in is handled by Clerk, which owns credentials, sessions and the account UI. The app only decides which routes need one."
+              lead="Sign-in is handled by Better Auth running on our own backend, with sessions stored in MongoDB. Email/password and Google sign-in both land in the same account, and the generation API is gated behind a session so it is never run anonymously."
             >
               <P>
-                The frontend holds a publishable key only — safe to ship, and useless on its own.
-                Clerk stores the session and exposes it through React hooks; the app never sees a
-                password, and there is no bespoke token handling to get wrong.
+                The browser holds a short-lived session token, sent on each API call; the backend
+                verifies it before any paid work begins. Passwords are hashed server-side and never
+                reach the frontend. Google sign-in uses OAuth — we store an account link, not a
+                Google password.
               </P>
 
               <Sub>Protecting a route</Sub>
@@ -651,15 +652,15 @@ for (const root of roots) {
               <SpecTable head={['Route', 'Access']} rows={ROUTES} />
 
               <Callout kind="why" title="Why the docs page is public">
-                The studio needs an account, because a video library belongs to a person. This
+                The studio needs an account to protect paid generation. This
                 write-up does not: anyone given the link — a teacher, a reviewer, a classmate —
                 should be able to read how the system works without signing up for anything.
               </Callout>
 
               <P>
-                Clerk&apos;s own components are themed through its appearance API using the same
-                palette as the rest of the product, and the theme toggle drives both at once. That
-                is why the sign-in card matches the app instead of looking like a bolted-on widget.
+                The sign-in and account screens are the app&apos;s own components, themed from the
+                same palette as the rest of the product and driven by the same theme toggle — so
+                they match the studio instead of looking like a bolted-on widget.
               </P>
             </Section>
 
@@ -677,7 +678,7 @@ for (const root of roots) {
                   { value: 'React 19', label: 'Vite + SWC frontend' },
                   { value: 'Tailwind v4', label: 'One token set, two themes' },
                   { value: 'Express 5', label: 'Streaming NDJSON API' },
-                  { value: 'Clerk', label: 'Sessions and account UI' },
+                  { value: 'Better Auth', label: 'Sessions on MongoDB' },
                 ]}
               />
 

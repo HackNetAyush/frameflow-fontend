@@ -16,15 +16,14 @@ npm install
 npm run dev          # http://localhost:5173
 ```
 
-Two environment variables, both in `.env`:
+One frontend environment variable in `.env`:
 
 | Variable | What it is |
 | --- | --- |
-| `VITE_SERVER_URL` | Base URL of the backend (default `http://localhost:3000`) |
-| `VITE_CLERK_PUBLISHABLE_KEY` | Clerk publishable key — [dashboard.clerk.com](https://dashboard.clerk.com) → **API Keys** |
+| `VITE_SERVER_URL` | HTTPS origin of the backend in production (`http://localhost:3000` locally) |
 
-Until the Clerk key is filled in, the app shows a setup screen instead of
-sign-in. `/how-it-works` stays reachable either way.
+Sign-in is handled by Better Auth on the backend. The backend requires MongoDB
+and a `BETTER_AUTH_SECRET` in production. `/how-it-works` is public.
 
 ## Routes
 
@@ -32,14 +31,14 @@ sign-in. `/how-it-works` stays reachable either way.
 | --- | --- |
 | `/` | Public — landing page |
 | `/how-it-works` | Public — pipeline documentation |
-| `/sign-in/*`, `/sign-up/*` | Public — Clerk owns every sub-path (verification, MFA, SSO callbacks) |
+| `/sign-in`, `/sign-up` | Public — email/password and optional Google sign-in |
 | `/app`, `/app/videos` | Protected by `RequireAuth`; unauthenticated visits redirect with a return URL |
 
 ## Layout
 
 ```
 src/
-  pages/            Landing, HowItWorks, AuthPage, Studio, SetupNotice, NotFound
+  pages/            Landing, HowItWorks, AuthPage, Studio, Account, NotFound
   components/
     Landing/        Marketing sections, hero product shot, FAQ, footer
     Docs/           Docs primitives: chapters, callouts, code blocks, diagrams
@@ -49,20 +48,22 @@ src/
   render/           The slide engine: markdown → blocks → measured layout → canvas ops
   video/            WebCodecs H.264 encode, with an ffmpeg.wasm fallback
   hooks/            useVideoGenerator (the conductor), useVideos, useTheme
-  theme/            One theme value shared by the UI and Clerk's appearance API
-  lib/              Clerk appearance mapping
+  theme/            One theme value shared by the UI
+  lib/              Better Auth browser client and video options
 ```
 
 ## Notes
 
 - **Design tokens.** Every colour is a CSS variable in `src/index.css`; light
-  mode is a pure token swap. Components never branch on the active theme, and
-  Clerk's own DOM is themed from the same palette via `lib/clerkAppearance.js`.
+  mode is a pure token swap.
 - **Cross-origin isolation.** `COOP: same-origin` + `COEP: credentialless` are
-  set in `vite.config.js` and `staticwebapp.config.json`. The isolation is what
+  set in `vite.config.js` and `public/staticwebapp.config.json`. Vite copies the
+  latter into `dist/` for Azure Static Web Apps. The isolation is what
   makes `SharedArrayBuffer` (and therefore the ffmpeg.wasm fallback) available;
   `credentialless` rather than `require-corp` because the stricter mode also
-  blocks third-party scripts such as Clerk's.
+  blocks third-party assets.
+- **Video library.** Finished videos are object URLs held in this tab's memory.
+  Download files before closing or refreshing the tab.
 - **Scripts.** `npm run verify:render` checks that no composed slide can be
   taller than its frame; `npm run preview:slides` renders sessions to a static
   preview page.

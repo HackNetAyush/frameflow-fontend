@@ -21,7 +21,7 @@ const ITEMS = [
   },
   {
     q: 'Why do I have to sign in?',
-    a: 'Sign-in is handled by Clerk and keeps your video library and generation history tied to your account rather than to whoever opens the tab. The landing page and the "How it works" write-up stay open to everyone.',
+    a: 'Signing in keeps paid generation available to account holders and helps us limit usage fairly. Finished videos stay in this browser tab until you download them. The landing page and "How it works" stay open to everyone.',
   },
   {
     q: 'Do the videos stay after I close the tab?',

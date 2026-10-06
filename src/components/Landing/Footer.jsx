@@ -24,7 +24,7 @@ const COLUMNS = [
   },
 ];
 
-const STACK = ['React 19', 'Vite', 'Tailwind v4', 'Clerk', 'Express', 'Azure OpenAI', 'Azure Speech', 'FLUX', 'WebCodecs'];
+const STACK = ['React 19', 'Vite', 'Tailwind v4', 'Better Auth', 'Express', 'Azure OpenAI', 'Azure Speech', 'FLUX', 'WebCodecs'];
 
 const Footer = () => (
   <footer className="border-t border-line bg-ink-900">

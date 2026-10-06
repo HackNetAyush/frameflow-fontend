@@ -338,16 +338,6 @@ html {
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-/* --- clerk ---------------------------------------------------------------
- * Clerk renders its own DOM. Its appearance API covers colour and radius, but
- * the outer card shadow has to be neutralised here or it fights the flat,
- * hairline-only look of the rest of the product.
- */
-.cl-cardBox,
-.cl-card {
-  box-shadow: none !important;
-}
-
 /* --- code tokens ---------------------------------------------------------
  * Used by the docs page's code samples. A separate small ramp from the UI
  * accent, because syntax needs several hues to be readable and the accent

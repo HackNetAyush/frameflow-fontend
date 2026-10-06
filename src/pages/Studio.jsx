@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AlertCircle, Video as VideoIcon, ArrowRight } from 'lucide-react';
-import { useUser } from '@clerk/clerk-react';
+import { useSession } from '../lib/authClient';
 
 import AppShell from '../components/Layout/AppShell';
 import LoadingScreen from '../components/Layout/LoadingScreen';
@@ -33,7 +33,8 @@ const EmptyState = ({ compact }) => (
 const Studio = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user } = useUser();
+  const { data: session } = useSession();
+  const user = session?.user;
 
   const { videos, addVideo, removeVideo } = useVideos();
   const { options, set: setOption, reset: resetOptions } = useVideoOptions();
@@ -116,7 +117,7 @@ const Studio = () => {
           </section>
         ) : (
           <>
-            <Hero name={user?.firstName} />
+            <Hero name={user?.name?.split(' ')[0]} />
 
             <div className="mt-9 space-y-4">
               {error && !isGenerating ? (

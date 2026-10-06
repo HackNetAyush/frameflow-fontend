@@ -48,12 +48,6 @@ const assertDeployable = (env) => {
     )
   }
 
-  if (!env.VITE_CLERK_PUBLISHABLE_KEY) {
-    console.warn(
-      '\n  ⚠  VITE_CLERK_PUBLISHABLE_KEY is not set — this build renders the setup notice '
-      + 'in place of the studio.\n',
-    )
-  }
 }
 
 // https://vite.dev/config/
@@ -68,7 +62,8 @@ export default defineConfig(({ command, mode }) => {
         // Cross-origin isolation is what makes SharedArrayBuffer — and therefore
         // the ffmpeg.wasm fallback — available. `credentialless` rather than
         // `require-corp` because the stricter mode also blocks third-party
-        // scripts that do not send CORP headers, Clerk's included.
+        // scripts and images that do not send CORP headers (e.g. Google
+        // profile photos, OAuth assets).
         'Cross-Origin-Opener-Policy': 'same-origin',
         'Cross-Origin-Embedder-Policy': 'credentialless',
       },

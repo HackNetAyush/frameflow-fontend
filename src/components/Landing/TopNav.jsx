@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { UserButton } from '@clerk/clerk-react';
 import { Menu, X as Close, ArrowRight } from 'lucide-react';
 import clsx from 'clsx';
 
 import Brand from '../Layout/Brand';
 import ThemeToggle from '../Layout/ThemeToggle';
+import AccountMenu from '../Auth/AccountMenu';
 import { useThemeMode } from '../../theme/context';
 import { useSignedIn } from '../../hooks/useSignedIn';
 
@@ -80,9 +80,7 @@ const TopNav = () => {
             <ArrowRight className="h-3.5 w-3.5" />
           </Link>
 
-          {signedIn ? (
-            <UserButton afterSignOutUrl="/" appearance={{ elements: { avatarBox: 'h-8 w-8' } }} />
-          ) : null}
+          {signedIn ? <AccountMenu align="right" avatarClass="h-8 w-8" /> : null}
 
           <button
             onClick={() => setOpen((v) => !v)}

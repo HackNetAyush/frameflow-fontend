@@ -120,7 +120,7 @@ export const ArchitectureDiagram = () => (
         <Panel x={724} y={14} w={248} h={404} title="CLOUD MODELS" note="Azure & FLUX" />
 
         {/* ---- browser column ---- */}
-        <Box x={30} y={72} label="Prompt & progress UI" sub="React 19 + Clerk session" accent />
+        <Box x={30} y={72} label="Prompt & progress UI" sub="React 19 + Better Auth session" accent />
         <Box x={30} y={146} label="Layout engine" sub="markdown → measured pages" />
         <Box x={30} y={220} label="Canvas painter" sub="1920 × 1080 frames" />
         <Box x={30} y={294} label="WebCodecs + muxer" sub="H.264 → MP4 blob" />

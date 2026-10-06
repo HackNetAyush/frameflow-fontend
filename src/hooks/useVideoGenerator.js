@@ -5,6 +5,7 @@ import {
 import { encodeMp4, encodeFallback, supportsWebCodecs } from '../video/encoder';
 import { DEFAULTS } from '../lib/videoOptions';
 import { ensureReadable } from '../lib/color';
+import { getBearerToken } from '../lib/authClient';
 
 const server_url = import.meta.env.VITE_SERVER_URL;
 
@@ -285,13 +286,23 @@ export const useVideoGenerator = () => {
 
     try {
       /* 1. script + media, streamed */
+      const token = getBearerToken();
       const response = await fetch(`${server_url}/api/explain`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          // Dual transport: the bearer token works cross-origin today; the
+          // cookie (credentials) takes over once the apps share a root domain.
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: 'include',
         body: JSON.stringify({ prompt, options: toPayload(options) }),
         signal: controller.signal,
       });
 
+      if (response.status === 401) {
+        throw new Error('Your session has expired. Please sign in again.');
+      }
       if (!response.ok) throw new Error(`Server returned ${response.status}`);
       if (!response.body) throw new Error('Streaming is not supported in this browser.');
 
